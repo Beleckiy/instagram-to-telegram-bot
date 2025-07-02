@@ -1,0 +1,4 @@
+instaloader
+python-telegram-bot==13.15
+schedule
+python-dotenv
