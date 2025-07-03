@@ -1,9 +1,6 @@
 services:
   - type: web
     name: instagram-to-telegram-bot
-    env: python
+    env: docker
     plan: free
     region: frankfurt
-    buildCommand: "pip install -r requirements.txt"
-    startCommand: "python main.py"
-    pythonVersion: 3.10.13
