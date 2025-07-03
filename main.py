@@ -147,7 +147,7 @@ def send_post(post):
                 break
         
         # Відправляємо в Telegram
-        caption = f"📸 Пост від @{INSTAGRAM_TARGET}\n\n{post.caption or ''}"
+        caption = f"\n{post.caption or ''}"
         
         if media_file:
             with open(media_file, 'rb') as media:
