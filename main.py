@@ -1,88 +1,80 @@
 import os
 import time
 import logging
-import schedule
-import instaloader
-import threading
-import http.server
-import socketserver
-
-from telegram import Bot
-from telegram.error import TelegramError
 from dotenv import load_dotenv
+import instaloader
+import telegram
+from telegram.error import TelegramError
+from apscheduler.schedulers.background import BackgroundScheduler
 
-# Запускаємо псевдосервер на 8080, щоб Render не завершував сервіс
-def keep_alive():
-    PORT = 8080
-    Handler = http.server.SimpleHTTPRequestHandler
-    with socketserver.TCPServer(("", PORT), Handler) as httpd:
-        print(f"🌐 Псевдосервер працює на порту {PORT}")
-        httpd.serve_forever()
-
-threading.Thread(target=keep_alive, daemon=True).start()
-
-# Завантажуємо змінні оточення
+# Завантажуємо змінні з .env
 load_dotenv()
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-CHAT_ID = os.getenv("CHAT_ID")
-INSTAGRAM_USERNAME = os.getenv("INSTAGRAM_USERNAME")
 
 # Налаштування логування
-logging.basicConfig(
-    level=logging.INFO,
-    format='[%(asctime)s] %(levelname)s - %(message)s',
-)
-logger = logging.getLogger()
+logging.basicConfig(level=logging.INFO, format='[%(asctime)s] %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
-# Ініціалізуємо Telegram-бота
-bot = Bot(token=TELEGRAM_TOKEN)
+# Ініціалізація Instaloader
+L = instaloader.Instaloader()
 
-# Кеш-файл для останнього shortcode посту
-CACHE_FILE = "last_shortcode.txt"
+try:
+    L.login(os.getenv("IG_USERNAME"), os.getenv("IG_PASSWORD"))
+    logger.info("✅ Успішний вхід в Instagram")
+except Exception as e:
+    logger.error(f"❌ Помилка входу в Instagram: {e}")
+    exit(1)
 
-def load_last_shortcode():
-    if os.path.exists(CACHE_FILE):
-        with open(CACHE_FILE, "r") as f:
-            return f.read().strip()
-    return ""
+# Отримуємо змінні середовища
+bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
+chat_id = os.getenv("TELEGRAM_CHAT_ID")
+instagram_username = os.getenv("INSTAGRAM_USERNAME")
 
-def save_last_shortcode(shortcode):
-    with open(CACHE_FILE, "w") as f:
-        f.write(shortcode)
+# Перевірка токена і чату
+if not all([bot_token, chat_id, instagram_username]):
+    logger.error("❌ Не всі змінні середовища вказані (TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, INSTAGRAM_USERNAME)")
+    exit(1)
 
-# Основна логіка публікації
-def send_latest_instagram_post():
-    logger.info("🔍 Перевірка наявності нового поста...")
+bot = telegram.Bot(token=bot_token)
+
+# Змінна для збереження ID останнього поста
+last_post_shortcode = None
+
+def check_new_post():
+    global last_post_shortcode
     try:
-        loader = instaloader.Instaloader()
-        profile = instaloader.Profile.from_username(loader.context, INSTAGRAM_USERNAME)
+        logger.info("🔍 Перевірка наявності нового поста...")
+
+        profile = instaloader.Profile.from_username(L.context, instagram_username)
         posts = profile.get_posts()
+
         latest_post = next(posts)
-        latest_shortcode = latest_post.shortcode
+        if latest_post.shortcode != last_post_shortcode:
+            last_post_shortcode = latest_post.shortcode
+            post_url = f"https://www.instagram.com/p/{latest_post.shortcode}/"
+            caption = latest_post.caption or "(без підпису)"
 
-        last_sent = load_last_shortcode()
-        if latest_shortcode == last_sent:
-            logger.info("⏸ Нових постів немає.")
-            return
+            message = f"🆕 Новий пост від @{instagram_username}:\n{caption}\n\n{post_url}"
 
-        post_url = f"https://www.instagram.com/p/{latest_shortcode}/"
-        bot.send_message(chat_id=CHAT_ID, text=f"📸 Новий пост в Instagram:\n{post_url}")
-        save_last_shortcode(latest_shortcode)
-        logger.info(f"✅ Відправлено в Telegram: {post_url}")
+            bot.send_message(chat_id=chat_id, text=message)
+            logger.info("✅ Новий пост відправлено в Telegram")
 
-    except TelegramError as e:
-        logger.error(f"❌ Telegram error: {e}")
+        else:
+            logger.info("ℹ️ Нових постів немає.")
+    except TelegramError as te:
+        logger.error(f"❌ Telegram помилка: {te}")
     except Exception as e:
         logger.error(f"❌ Інша помилка: {e}")
 
-# Планувальник
-schedule.every(15).minutes.do(send_latest_instagram_post)
+if __name__ == "__main__":
+    logger.info("🚀 Бот запущено і працює!")
 
-# Перший запуск одразу
-send_latest_instagram_post()
+    scheduler = BackgroundScheduler()
+    scheduler.add_job(check_new_post, 'interval', minutes=5)
+    scheduler.start()
 
-logger.info("🚀 Бот запущено і працює!")
+    # Перша перевірка одразу після старту
+    check_new_post()
 
-while True:
-    schedule.run_pending()
-    time.sleep(10)
+    # Keep the bot running
+    while True:
+        time.sleep(60)
