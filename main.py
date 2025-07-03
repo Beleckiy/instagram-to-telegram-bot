@@ -1,73 +1,88 @@
 import os
 import time
-import instaloader
+import logging
 import schedule
+import instaloader
+import threading
+import http.server
+import socketserver
+
 from telegram import Bot
+from telegram.error import TelegramError
 from dotenv import load_dotenv
 
+# Запускаємо псевдосервер на 8080, щоб Render не завершував сервіс
+def keep_alive():
+    PORT = 8080
+    Handler = http.server.SimpleHTTPRequestHandler
+    with socketserver.TCPServer(("", PORT), Handler) as httpd:
+        print(f"🌐 Псевдосервер працює на порту {PORT}")
+        httpd.serve_forever()
+
+threading.Thread(target=keep_alive, daemon=True).start()
+
+# Завантажуємо змінні оточення
 load_dotenv()
-
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-CHANNEL_USERNAME = os.getenv("CHANNEL_USERNAME")
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+CHAT_ID = os.getenv("CHAT_ID")
 INSTAGRAM_USERNAME = os.getenv("INSTAGRAM_USERNAME")
-CHECK_INTERVAL = int(os.getenv("CHECK_INTERVAL", 3600))
-STORIES_INTERVAL = int(os.getenv("STORIES_INTERVAL", 300))
-POST_SCHEDULE = os.getenv("POST_SCHEDULE", None)
-SEEN_POSTS_FILE = "seen_posts.txt"
 
-bot = Bot(token=TELEGRAM_BOT_TOKEN)
-loader = instaloader.Instaloader(dirname_pattern="download", save_metadata=False)
+# Налаштування логування
+logging.basicConfig(
+    level=logging.INFO,
+    format='[%(asctime)s] %(levelname)s - %(message)s',
+)
+logger = logging.getLogger()
 
-def send_media(media_path, caption=""):
-    if media_path.endswith(".jpg"):
-        bot.send_photo(chat_id=CHANNEL_USERNAME, photo=open(media_path, "rb"), caption=caption)
-    elif media_path.endswith(".mp4"):
-        bot.send_video(chat_id=CHANNEL_USERNAME, video=open(media_path, "rb"), caption=caption)
+# Ініціалізуємо Telegram-бота
+bot = Bot(token=TELEGRAM_TOKEN)
 
-def load_seen_posts():
-    if not os.path.exists(SEEN_POSTS_FILE):
-        return set()
-    with open(SEEN_POSTS_FILE, "r") as f:
-        return set(f.read().splitlines())
+# Кеш-файл для останнього shortcode посту
+CACHE_FILE = "last_shortcode.txt"
 
-def save_seen_post(shortcode):
-    with open(SEEN_POSTS_FILE, "a") as f:
-        f.write(shortcode + "\n")
+def load_last_shortcode():
+    if os.path.exists(CACHE_FILE):
+        with open(CACHE_FILE, "r") as f:
+            return f.read().strip()
+    return ""
 
-def check_new_posts():
-    seen = load_seen_posts()
-    profile = instaloader.Profile.from_username(loader.context, INSTAGRAM_USERNAME)
-    for post in profile.get_posts():
-        if post.shortcode in seen:
-            break
-        loader.download_post(post, target="download")
-        for file in os.listdir("download"):
-            if file.endswith((".jpg", ".mp4")):
-                send_media(f"download/{file}", post.caption[:1024] if post.caption else "")
-                os.remove(f"download/{file}")
-        save_seen_post(post.shortcode)
+def save_last_shortcode(shortcode):
+    with open(CACHE_FILE, "w") as f:
+        f.write(shortcode)
 
-def check_stories():
+# Основна логіка публікації
+def send_latest_instagram_post():
+    logger.info("🔍 Перевірка наявності нового поста...")
     try:
+        loader = instaloader.Instaloader()
         profile = instaloader.Profile.from_username(loader.context, INSTAGRAM_USERNAME)
-        for story in loader.get_stories(userids=[profile.userid]):
-            for item in story.get_items():
-                loader.download_storyitem(item, target="download")
-                for file in os.listdir("download"):
-                    if file.endswith((".jpg", ".mp4")):
-                        send_media(f"download/{file}", "📺 Story")
-                        os.remove(f"download/{file}")
+        posts = profile.get_posts()
+        latest_post = next(posts)
+        latest_shortcode = latest_post.shortcode
+
+        last_sent = load_last_shortcode()
+        if latest_shortcode == last_sent:
+            logger.info("⏸ Нових постів немає.")
+            return
+
+        post_url = f"https://www.instagram.com/p/{latest_shortcode}/"
+        bot.send_message(chat_id=CHAT_ID, text=f"📸 Новий пост в Instagram:\n{post_url}")
+        save_last_shortcode(latest_shortcode)
+        logger.info(f"✅ Відправлено в Telegram: {post_url}")
+
+    except TelegramError as e:
+        logger.error(f"❌ Telegram error: {e}")
     except Exception as e:
-        print(f"[ERROR] Story check failed: {e}")
+        logger.error(f"❌ Інша помилка: {e}")
 
-if POST_SCHEDULE:
-    schedule.every().day.at(POST_SCHEDULE).do(check_new_posts)
-else:
-    schedule.every(CHECK_INTERVAL).seconds.do(check_new_posts)
+# Планувальник
+schedule.every(15).minutes.do(send_latest_instagram_post)
 
-schedule.every(STORIES_INTERVAL).seconds.do(check_stories)
+# Перший запуск одразу
+send_latest_instagram_post()
 
-print("[INFO] Bot started...")
+logger.info("🚀 Бот запущено і працює!")
+
 while True:
     schedule.run_pending()
-    time.sleep(5)
+    time.sleep(10)
