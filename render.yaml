@@ -1,22 +1,6 @@
 services:
   - type: web
     name: instagram-to-telegram-bot
-    env: python
+    env: docker
     plan: free
-    buildCommand: "pip install -r requirements.txt"
-    startCommand: "python main.py"
-    envVars:
-      - key: TELEGRAM_BOT_TOKEN
-        value: your_token_here
-      - key: CHANNEL_USERNAME
-        value: @thechosentvua
-      - key: INSTAGRAM_USERNAME
-        value: thechosentvua
-      - key: CHECK_INTERVAL
-        value: "3600"
-      - key: STORIES_INTERVAL
-        value: "300"
-      - key: POST_SCHEDULE
-        value: "10:00"
-    build:
-      pythonVersion: 3.10.12
+    region: frankfurt
