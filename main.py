@@ -116,7 +116,7 @@ def check_and_send_post():
                 break
         
         # Відправляємо в Telegram
-        caption = f"📸 Новий пост від @{INSTAGRAM_TARGET}\n\n{latest_post.caption or ''}"
+        caption = f"\n{latest_post.caption or ''}"
         
         if media_file:
             with open(media_file, 'rb') as media:
