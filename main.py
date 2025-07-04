@@ -343,12 +343,19 @@ def scheduled_posting():
         logger.error(f"❌ Критична помилка в scheduled_posting: {e}")
 
 # Налаштовуємо розклад
-schedule.every().day.at("09:00").do(scheduled_posting)
-schedule.every().day.at("15:00").do(scheduled_posting)
-schedule.every().day.at("21:00").do(scheduled_posting)
+#schedule.every().day.at("09:00").do(scheduled_posting)
+#schedule.every().day.at("15:00").do(scheduled_posting)
+#schedule.every().day.at("21:00").do(scheduled_posting)
 
 # Додаткова перевірка нових постів
-schedule.every().day.at("08:00").do(check_for_new_posts)
+#schedule.every().day.at("08:00").do(check_for_new_posts)
+
+# Публікувати кожні 10 хвилин
+schedule.every(10).minutes.do(scheduled_posting)
+
+# Перевіряти нові пости кожні 30 хвилин
+schedule.every(30).minutes.do(check_for_new_posts)
+
 
 # === Запуск ===
 if __name__ == "__main__":
