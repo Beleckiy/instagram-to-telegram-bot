@@ -382,3 +382,10 @@ if __name__ == "__main__":
         except Exception as e:
             logger.error(f"⚠️ Помилка в головному циклі: {e}")
             time.sleep(60)
+
+# Додайте цю функцію для ручного запуску
+@app.route('/force_check')
+def force_check():
+    check_for_new_posts()
+    scheduled_posting()
+    return "Перевірка виконана!"
