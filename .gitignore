@@ -1,5 +1,5 @@
 .env
+*.log
 __pycache__/
 *.pyc
-download/
-seen_posts.txt
+temp_*
